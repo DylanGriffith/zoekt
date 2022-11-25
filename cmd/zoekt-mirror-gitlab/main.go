@@ -179,7 +179,8 @@ func fetchProjects(destDir, token string, projects []*gitlab.Project) {
 			"zoekt.archived": marshalBool(p.Archived),
 		}
 
-		cloneURL := p.HTTPURLToRepo
+		u.User = url.UserPassword("root", token)
+		cloneURL := u.String()
 		dest, err := gitindex.CloneRepo(destDir, p.PathWithNamespace, cloneURL, config)
 		if err != nil {
 			log.Printf("cloneRepos: %v", err)
