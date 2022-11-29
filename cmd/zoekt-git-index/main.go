@@ -35,6 +35,7 @@ func run() int {
 	submodules := flag.Bool("submodules", true, "if set to false, do not recurse into submodules")
 	branchesStr := flag.String("branches", "HEAD", "git branches to index.")
 	branchPrefix := flag.String("prefix", "refs/heads/", "prefix for branch names")
+	explicitName := flag.String("name", "refs/heads/", "the name to call this repo in the index. This only works with a single repo being indexed")
 
 	incremental := flag.Bool("incremental", true, "only index changed repositories")
 	repoCacheDir := flag.String("repo_cache", "", "directory holding bare git repos, named by URL. "+
@@ -92,6 +93,9 @@ func run() int {
 			name = strings.TrimSuffix(name, ".git")
 		} else {
 			name = strings.TrimSuffix(filepath.Base(name), ".git")
+		}
+		if len(*explicitName) != 0 {
+			name = *explicitName
 		}
 		gitRepos[repoDir] = name
 	}
