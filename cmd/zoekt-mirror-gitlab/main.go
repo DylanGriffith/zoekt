@@ -43,10 +43,11 @@ func main() {
 	token := flag.String("token",
 		filepath.Join(os.Getenv("HOME"), ".gitlab-token"),
 		"file holding API token.")
-	isMember := flag.Bool("membership", false, "only mirror repos this user is a member of ")
+	isMember := flag.Bool("membership", false, "only mirror repos this user is a member of. This does not work with groups")
 	isPublic := flag.Bool("public", false, "only mirror public repos")
 	deleteRepos := flag.Bool("delete", false, "delete missing repos")
 	namePattern := flag.String("name", "", "only clone repos whose name matches the given regexp.")
+	groups := flag.String("groups", "", "comma separated list of groups to clone. This is more efficient than the name regexp if you want to narrow down specifically to groups")
 	excludePattern := flag.String("exclude", "", "don't mirror repos whose names match this regexp.")
 	flag.Parse()
 
@@ -72,26 +73,11 @@ func main() {
 	}
 	apiToken := strings.TrimSpace(string(content))
 
-	client, err := gitlab.NewClient(apiToken, gitlab.WithBaseURL(*gitlabURL))
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	opt := &gitlab.ListProjectsOptions{
-		ListOptions: gitlab.ListOptions{
-			PerPage: 100,
-		},
-		Sort:       gitlab.String("asc"),
-		OrderBy:    gitlab.String("id"),
-		Membership: isMember,
-	}
-	if *isPublic {
-		opt.Visibility = gitlab.Visibility(gitlab.PublicVisibility)
-	}
-
 	var gitlabProjects []*gitlab.Project
+	page, idAfter := 0, 0
 	for {
-		projects, _, err := client.Projects.ListProjects(opt)
+		projects, err := queryForProjects(apiToken, gitlabURL, isMember, isPublic, groups, page, idAfter)
+
 		if err != nil {
 			log.Fatal(err)
 		}
@@ -111,7 +97,8 @@ func main() {
 			break
 		}
 
-		opt.IDAfter = &projects[len(projects)-1].ID
+		page = page + 1
+		idAfter = *&projects[len(projects)-1].ID
 	}
 
 	filter, err := gitindex.NewFilter(*namePattern, *excludePattern)
@@ -136,6 +123,66 @@ func main() {
 			log.Fatalf("deleteStaleProjects: %v", err)
 		}
 	}
+}
+
+func queryForProjects(apiToken string, gitlabURL *string, isMember *bool, isPublic *bool, groups *string, page int, idAfter int) ([]*gitlab.Project, error) {
+	client, err := gitlab.NewClient(apiToken, gitlab.WithBaseURL(*gitlabURL))
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var gitlabProjects []*gitlab.Project
+
+	if len(*groups) == 0 {
+		opt := &gitlab.ListProjectsOptions{
+			ListOptions: gitlab.ListOptions{
+				PerPage: 100,
+			},
+			Sort:       gitlab.String("asc"),
+			OrderBy:    gitlab.String("id"),
+			Membership: isMember,
+			IDAfter:    &idAfter,
+		}
+		if *isPublic {
+			opt.Visibility = gitlab.Visibility(gitlab.PublicVisibility)
+		}
+		projects, _, err := client.Projects.ListProjects(opt)
+		if err != nil {
+			return nil, err
+		}
+		for _, project := range projects {
+			gitlabProjects = append(gitlabProjects, project)
+		}
+	} else {
+
+		log.Printf("All groups: %v", *groups)
+		log.Printf("All groups: %v", strings.Split(*groups, ","))
+		for _, group := range strings.Split(*groups, ",") {
+			log.Printf("Querying group: %v", group)
+
+			opt := &gitlab.ListGroupProjectsOptions{
+				ListOptions: gitlab.ListOptions{
+					PerPage: 100,
+					Page:    page,
+				},
+				Sort:    gitlab.String("asc"),
+				OrderBy: gitlab.String("id"),
+			}
+			if *isPublic {
+				opt.Visibility = gitlab.Visibility(gitlab.PublicVisibility)
+			}
+			projects, _, err := client.Groups.ListGroupProjects(group, opt)
+			if err != nil {
+				return nil, err
+			}
+			for _, project := range projects {
+				gitlabProjects = append(gitlabProjects, project)
+			}
+		}
+	}
+
+	return gitlabProjects, nil
 }
 
 func deleteStaleProjects(destDir string, filter *gitindex.Filter, projects []*gitlab.Project) error {
