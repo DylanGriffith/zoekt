@@ -219,6 +219,7 @@ func main() {
 	s.Print = *print
 	s.HTML = *html
 	s.RPC = *enableRPC
+	s.RootDirectory = *index
 
 	if *hostCustomization != "" {
 		s.HostCustomQueries = map[string]string{}
