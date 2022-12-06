@@ -23,9 +23,6 @@ import (
 	"log"
 	"net"
 	"net/http"
-	"os/exec"
-	"path"
-	"path/filepath"
 	"regexp/syntax"
 	"sort"
 	"strconv"
@@ -129,11 +126,6 @@ type Server struct {
 	lastStatsTS time.Time
 }
 
-type indexRequest struct {
-	RepositoryUrl  string // TODO: Decide if tokens can be in the URL or if we should pass separately
-	RepositoryName string
-}
-
 func (s *Server) getTemplate(str string) *template.Template {
 	s.templateMu.Lock()
 	defer s.templateMu.Unlock()
@@ -182,7 +174,6 @@ func NewMux(s *Server) (*http.ServeMux, error) {
 		mux.HandleFunc("/", s.serveSearchBox)
 		mux.HandleFunc("/about", s.serveAbout)
 		mux.HandleFunc("/print", s.servePrint)
-		mux.HandleFunc("/index", s.serveIndex)
 	}
 	if s.RPC {
 		mux.Handle(rpc.DefaultRPCPath, rpc.Server(traceAwareSearcher{s.Searcher})) // /rpc
@@ -340,61 +331,6 @@ func (s *Server) servePrint(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusTeapot)
 	}
-}
-
-const indexTimeout = 1*time.Hour + 30*time.Minute // an index should never take longer than an hour and a half
-
-// TODO: Is there a way to make this only for `POST`?
-func (s *Server) serveIndex(w http.ResponseWriter, r *http.Request) {
-	dec := json.NewDecoder(r.Body)
-	dec.DisallowUnknownFields()
-	var req indexRequest
-	err := dec.Decode(&req)
-
-	if err != nil {
-		log.Printf("Error decoding index request: %v", err)
-		http.Error(w, "JSON parser error", http.StatusBadRequest)
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), indexTimeout)
-
-	defer cancel()
-
-	args := []string{}
-	args = append(args, "-dest", s.RootDirectory)
-	args = append(args, "-name", req.RepositoryName)
-	args = append(args, req.RepositoryUrl)
-	cmd := exec.CommandContext(ctx, "zoekt-git-clone", args...)
-	cmd.Stdin = &bytes.Buffer{}
-	loggedRun(cmd)
-
-	args = []string{}
-
-	gitRepoPath, err := filepath.Abs(path.Join(s.RootDirectory, req.RepositoryName+".git"))
-	if err != nil {
-		log.Printf("Error loading git repo path: %v", err)
-		http.Error(w, "JSON parser error", http.StatusBadRequest)
-	}
-	args = append(args, gitRepoPath)
-	cmd = exec.CommandContext(ctx, "zoekt-git-index", args...)
-	cmd.Dir = s.RootDirectory
-	cmd.Stdin = &bytes.Buffer{}
-	loggedRun(cmd)
-}
-
-func loggedRun(cmd *exec.Cmd) (out, err []byte) {
-	outBuf := &bytes.Buffer{}
-	errBuf := &bytes.Buffer{}
-	cmd.Stdout = outBuf
-	cmd.Stderr = errBuf
-
-	log.Printf("run %v", cmd.Args)
-	if err := cmd.Run(); err != nil {
-		log.Printf("command %s failed: %v\nOUT: %s\nERR: %s",
-			cmd.Args, err, outBuf.String(), errBuf.String())
-	}
-
-	return outBuf.Bytes(), errBuf.Bytes()
 }
 
 const statsStaleNess = 30 * time.Second
