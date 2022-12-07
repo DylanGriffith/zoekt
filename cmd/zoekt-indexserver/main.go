@@ -202,6 +202,13 @@ func startIndexingApi(repoDir string, indexDir string, indexTimeout time.Duratio
 			log.Printf("Error loading git repo path: %v", err)
 			http.Error(w, "JSON parser error", http.StatusBadRequest)
 		}
+		args = append(args, "-C", gitRepoPath, "fetch")
+		cmd = exec.CommandContext(ctx, "git", args...)
+		cmd.Stdin = &bytes.Buffer{}
+		loggedRun(cmd)
+
+		args = []string{}
+
 		args = append(args, gitRepoPath)
 		cmd = exec.CommandContext(ctx, "zoekt-git-index", args...)
 		cmd.Dir = indexDir
