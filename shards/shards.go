@@ -382,6 +382,11 @@ func selectRepoSet(shards []*rankedShard, q query.Q) ([]*rankedShard, query.Q) {
 			hasRepos = hasReposForPredicate(func(repo *zoekt.Repository) bool {
 				return setQuery.Set[repo.Name]
 			})
+		case *query.RepoIds:
+			setSize = len(setQuery.Repos)
+			hasRepos = hasReposForPredicate(func(repo *zoekt.Repository) bool {
+				return setQuery.Repos.Contains(repo.Id)
+			})
 		case *query.BranchesRepos:
 			for _, br := range setQuery.List {
 				setSize += int(br.Repos.GetCardinality())
@@ -436,6 +441,10 @@ func selectRepoSet(shards []*rankedShard, q query.Q) ([]*rankedShard, query.Q) {
 		// (content baz). This work can be done now once, rather than per shard.
 		switch c := c.(type) {
 		case *query.RepoSet:
+			and.Children[i] = &query.Const{Value: true}
+			return filtered, query.Simplify(and)
+
+		case *query.RepoIds:
 			and.Children[i] = &query.Const{Value: true}
 			return filtered, query.Simplify(and)
 

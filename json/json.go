@@ -27,8 +27,9 @@ type jsonSearcher struct {
 }
 
 type jsonSearchArgs struct {
-	Q    string
-	Opts *zoekt.SearchOptions
+	Q       string
+	RepoIds []uint32
+	Opts    *zoekt.SearchOptions
 }
 
 type jsonSearchReply struct {
@@ -71,6 +72,10 @@ func (s *jsonSearcher) jsonSearch(w http.ResponseWriter, req *http.Request) {
 	if err != nil {
 		jsonError(w, http.StatusBadRequest, err.Error())
 		return
+	}
+
+	if len(searchArgs.RepoIds) != 0 {
+		query = query.NewAnd(query, query.NewRepoIds(searchArgs.RepoIds))
 	}
 
 	// Set a timeout if the user hasn't specified one.
