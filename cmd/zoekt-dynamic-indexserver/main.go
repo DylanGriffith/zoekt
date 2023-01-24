@@ -12,10 +12,9 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-// This program manages a zoekt indexing deployment:
-// * recycling logs
-// * periodically fetching new data.
-// * periodically reindexing all git repos.
+// This program manages a zoekt dynamic indexing deployment:
+// * listens to indexing commands
+// * reindexes specified repositories
 
 package main
 
@@ -86,7 +85,16 @@ type indexRequest struct {
 }
 
 func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeout time.Duration) {
-	http.HandleFunc("/index", func(w http.ResponseWriter, r *http.Request) {
+	http.HandleFunc("/index", serveIndex(repoDir, indexDir, indexTimeout))
+	http.HandleFunc("/truncate", serveTruncate(repoDir, indexDir))
+
+	if err := http.ListenAndServe(listen, nil); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func serveIndex(repoDir string, indexDir string, indexTimeout time.Duration) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
 		var req indexRequest
@@ -131,9 +139,11 @@ func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeo
 		cmd.Dir = indexDir
 		cmd.Stdin = &bytes.Buffer{}
 		loggedRun(cmd)
-	})
+	}
+}
 
-	http.HandleFunc("/truncate", func(w http.ResponseWriter, r *http.Request) {
+func serveTruncate(repoDir string, indexDir string) func(w http.ResponseWriter, req *http.Request) {
+	return func(w http.ResponseWriter, req *http.Request) {
 		err := emptyDirectory(repoDir)
 
 		if err != nil {
@@ -149,10 +159,6 @@ func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeo
 			http.Error(w, "Failed to delete indexDir", http.StatusInternalServerError)
 			return
 		}
-	})
-
-	if err := http.ListenAndServe(listen, nil); err != nil {
-		log.Fatal(err)
 	}
 }
 
