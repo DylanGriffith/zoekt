@@ -31,6 +31,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"time"
 )
 
@@ -80,8 +81,8 @@ func fetchGitRepo(dir string) bool {
 }
 
 type indexRequest struct {
-	RepoUrl string // TODO: Decide if tokens can be in the URL or if we should pass separately
-	RepoId  uint32
+	CloneURL string // TODO: Decide if tokens can be in the URL or if we should pass separately
+	RepoID   uint32
 }
 
 func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeout time.Duration) {
@@ -103,16 +104,16 @@ func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeo
 
 		args := []string{}
 		args = append(args, "-dest", repoDir)
-		args = append(args, "-name", fmt.Sprint(req.RepoId))
-		args = append(args, "-repoid", fmt.Sprint(req.RepoId))
-		args = append(args, req.RepoUrl)
+		args = append(args, "-name", strconv.FormatUint(uint64(req.RepoID), 10))
+		args = append(args, "-repoid", strconv.FormatUint(uint64(req.RepoID), 10))
+		args = append(args, req.CloneURL)
 		cmd := exec.CommandContext(ctx, "zoekt-git-clone", args...)
 		cmd.Stdin = &bytes.Buffer{}
 		loggedRun(cmd)
 
 		args = []string{}
 
-		gitRepoPath, err := filepath.Abs(filepath.Join(repoDir, fmt.Sprintf("%d.git", req.RepoId)))
+		gitRepoPath, err := filepath.Abs(filepath.Join(repoDir, fmt.Sprintf("%d.git", req.RepoID)))
 		if err != nil {
 			log.Printf("error loading git repo path: %v", err)
 			http.Error(w, "JSON parser error", http.StatusBadRequest)
