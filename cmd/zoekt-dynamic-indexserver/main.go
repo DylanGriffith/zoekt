@@ -93,6 +93,37 @@ func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeo
 	}
 }
 
+func indexRepository(repoDir string, indexDir string, req indexRequest, ctx context.Context, w http.ResponseWriter) {
+	args := []string{}
+	args = append(args, "-dest", repoDir)
+	args = append(args, "-name", strconv.FormatUint(uint64(req.RepoID), 10))
+	args = append(args, "-repoid", strconv.FormatUint(uint64(req.RepoID), 10))
+	args = append(args, req.CloneURL)
+	cmd := exec.CommandContext(ctx, "zoekt-git-clone", args...)
+	cmd.Stdin = &bytes.Buffer{}
+	loggedRun(cmd)
+
+	gitRepoPath, err := filepath.Abs(filepath.Join(repoDir, fmt.Sprintf("%d.git", req.RepoID)))
+	if err != nil {
+		log.Printf("error loading git repo path: %v", err)
+		http.Error(w, "JSON parser error", http.StatusBadRequest)
+		return
+	}
+
+	args = []string{}
+	args = append(args, "-C", gitRepoPath, "fetch")
+	cmd = exec.CommandContext(ctx, "git", args...)
+	cmd.Stdin = &bytes.Buffer{}
+	loggedRun(cmd)
+
+	args = []string{}
+	args = append(args, gitRepoPath)
+	cmd = exec.CommandContext(ctx, "zoekt-git-index", args...)
+	cmd.Dir = indexDir
+	cmd.Stdin = &bytes.Buffer{}
+	loggedRun(cmd)
+}
+
 func serveIndex(repoDir string, indexDir string, indexTimeout time.Duration) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(r.Body)
@@ -107,38 +138,9 @@ func serveIndex(repoDir string, indexDir string, indexTimeout time.Duration) fun
 		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), indexTimeout)
-
 		defer cancel()
 
-		args := []string{}
-		args = append(args, "-dest", repoDir)
-		args = append(args, "-name", strconv.FormatUint(uint64(req.RepoID), 10))
-		args = append(args, "-repoid", strconv.FormatUint(uint64(req.RepoID), 10))
-		args = append(args, req.CloneURL)
-		cmd := exec.CommandContext(ctx, "zoekt-git-clone", args...)
-		cmd.Stdin = &bytes.Buffer{}
-		loggedRun(cmd)
-
-		args = []string{}
-
-		gitRepoPath, err := filepath.Abs(filepath.Join(repoDir, fmt.Sprintf("%d.git", req.RepoID)))
-		if err != nil {
-			log.Printf("error loading git repo path: %v", err)
-			http.Error(w, "JSON parser error", http.StatusBadRequest)
-			return
-		}
-		args = append(args, "-C", gitRepoPath, "fetch")
-		cmd = exec.CommandContext(ctx, "git", args...)
-		cmd.Stdin = &bytes.Buffer{}
-		loggedRun(cmd)
-
-		args = []string{}
-
-		args = append(args, gitRepoPath)
-		cmd = exec.CommandContext(ctx, "zoekt-git-index", args...)
-		cmd.Dir = indexDir
-		cmd.Stdin = &bytes.Buffer{}
-		loggedRun(cmd)
+		indexRepository(repoDir, indexDir, req, ctx, w)
 	}
 }
 
