@@ -34,8 +34,6 @@ import (
 	"time"
 )
 
-const day = time.Hour * 24
-
 func loggedRun(cmd *exec.Cmd) (out, err []byte) {
 	outBuf := &bytes.Buffer{}
 	errBuf := &bytes.Buffer{}
@@ -53,10 +51,22 @@ func loggedRun(cmd *exec.Cmd) (out, err []byte) {
 
 type Options struct {
 	indexTimeout time.Duration
+	dataDir      string
+	indexDir     string
+	repoDir      string
+	listen       string
 }
 
-func (o *Options) defineFlags() {
-	flag.DurationVar(&o.indexTimeout, "index_timeout", time.Hour, "kill index job after this much time")
+func (o *Options) createMissingDirectories() {
+	for _, s := range []string{o.dataDir, o.indexDir, o.repoDir} {
+		if _, err := os.Stat(s); err == nil {
+			continue
+		}
+
+		if err := os.MkdirAll(s, 0o755); err != nil {
+			log.Fatalf("MkdirAll %s: %v", s, err)
+		}
+	}
 }
 
 type indexRequest struct {
@@ -64,18 +74,18 @@ type indexRequest struct {
 	RepoID   uint32
 }
 
-func startIndexingApi(repoDir string, indexDir string, listen string, indexTimeout time.Duration) {
-	http.HandleFunc("/index", serveIndex(repoDir, indexDir, indexTimeout))
-	http.HandleFunc("/truncate", serveTruncate(repoDir, indexDir))
+func startIndexingApi(opts Options) {
+	http.HandleFunc("/index", serveIndex(opts))
+	http.HandleFunc("/truncate", serveTruncate(opts))
 
-	if err := http.ListenAndServe(listen, nil); err != nil {
+	if err := http.ListenAndServe(opts.listen, nil); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func indexRepository(repoDir string, indexDir string, req indexRequest, ctx context.Context, w http.ResponseWriter) {
+func indexRepository(opts Options, req indexRequest, ctx context.Context, w http.ResponseWriter) {
 	args := []string{}
-	args = append(args, "-dest", repoDir)
+	args = append(args, "-dest", opts.repoDir)
 	args = append(args, "-name", strconv.FormatUint(uint64(req.RepoID), 10))
 	args = append(args, "-repoid", strconv.FormatUint(uint64(req.RepoID), 10))
 	args = append(args, req.CloneURL)
@@ -83,7 +93,7 @@ func indexRepository(repoDir string, indexDir string, req indexRequest, ctx cont
 	cmd.Stdin = &bytes.Buffer{}
 	loggedRun(cmd)
 
-	gitRepoPath, err := filepath.Abs(filepath.Join(repoDir, fmt.Sprintf("%d.git", req.RepoID)))
+	gitRepoPath, err := filepath.Abs(filepath.Join(opts.repoDir, fmt.Sprintf("%d.git", req.RepoID)))
 	if err != nil {
 		log.Printf("error loading git repo path: %v", err)
 		http.Error(w, "JSON parser error", http.StatusBadRequest)
@@ -99,12 +109,12 @@ func indexRepository(repoDir string, indexDir string, req indexRequest, ctx cont
 	args = []string{}
 	args = append(args, gitRepoPath)
 	cmd = exec.CommandContext(ctx, "zoekt-git-index", args...)
-	cmd.Dir = indexDir
+	cmd.Dir = opts.indexDir
 	cmd.Stdin = &bytes.Buffer{}
 	loggedRun(cmd)
 }
 
-func serveIndex(repoDir string, indexDir string, indexTimeout time.Duration) func(w http.ResponseWriter, req *http.Request) {
+func serveIndex(opts Options) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
@@ -117,27 +127,27 @@ func serveIndex(repoDir string, indexDir string, indexTimeout time.Duration) fun
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), indexTimeout)
+		ctx, cancel := context.WithTimeout(context.Background(), opts.indexTimeout)
 		defer cancel()
 
-		indexRepository(repoDir, indexDir, req, ctx, w)
+		indexRepository(opts, req, ctx, w)
 	}
 }
 
-func serveTruncate(repoDir string, indexDir string) func(w http.ResponseWriter, req *http.Request) {
+func serveTruncate(opts Options) func(w http.ResponseWriter, req *http.Request) {
 	return func(w http.ResponseWriter, req *http.Request) {
-		err := emptyDirectory(repoDir)
+		err := emptyDirectory(opts.repoDir)
 
 		if err != nil {
-			log.Printf("Failed to empty repoDir repoDir: %v with error: %v", repoDir, err)
+			log.Printf("Failed to empty repoDir repoDir: %v with error: %v", opts.repoDir, err)
 			http.Error(w, "Failed to delete repoDir", http.StatusInternalServerError)
 			return
 		}
 
-		err = emptyDirectory(indexDir)
+		err = emptyDirectory(opts.indexDir)
 
 		if err != nil {
-			log.Printf("Failed to empty repoDir indexDir: %v with error: %v", repoDir, err)
+			log.Printf("Failed to empty repoDir indexDir: %v with error: %v", opts.repoDir, err)
 			http.Error(w, "Failed to delete indexDir", http.StatusInternalServerError)
 			return
 		}
@@ -162,18 +172,32 @@ func emptyDirectory(dir string) error {
 	return nil
 }
 
-func main() {
-	var opts Options
-	opts.defineFlags()
-	dataDir := flag.String("data_dir",
-		filepath.Join(os.Getenv("HOME"), "zoekt-serving"), "directory holding all data.")
+func parseOptions() Options {
+	dataDir := flag.String("data_dir", filepath.Join(os.Getenv("HOME"), "zoekt-serving"), "directory holding all data.")
 	indexDir := flag.String("index_dir", "", "directory holding index shards. Defaults to $data_dir/index/")
+	timeout := flag.Duration("index_timeout", time.Hour, "kill index job after this much time")
 	listen := flag.String("listen", ":6060", "listen on this address.")
 	flag.Parse()
 
 	if *dataDir == "" {
-		log.Fatal("must set --data_dir")
+		log.Fatal("must set -data_dir")
 	}
+
+	if *indexDir == "" {
+		*indexDir = filepath.Join(*dataDir, "index")
+	}
+
+	return Options{
+		dataDir:      *dataDir,
+		repoDir:      filepath.Join(*dataDir, "repos"),
+		indexDir:     *indexDir,
+		indexTimeout: *timeout,
+		listen:       *listen,
+	}
+}
+
+func main() {
+	opts := parseOptions()
 
 	// Automatically prepend our own path at the front, to minimize
 	// required configuration.
@@ -181,20 +205,7 @@ func main() {
 		os.Setenv("PATH", filepath.Dir(l)+":"+os.Getenv("PATH"))
 	}
 
-	logDir := filepath.Join(*dataDir, "logs")
-	if *indexDir == "" {
-		*indexDir = filepath.Join(*dataDir, "index")
-	}
-	repoDir := filepath.Join(*dataDir, "repos")
-	for _, s := range []string{logDir, *indexDir, repoDir} {
-		if _, err := os.Stat(s); err == nil {
-			continue
-		}
+	opts.createMissingDirectories()
 
-		if err := os.MkdirAll(s, 0o755); err != nil {
-			log.Fatalf("MkdirAll %s: %v", s, err)
-		}
-	}
-
-	startIndexingApi(repoDir, *indexDir, *listen, opts.indexTimeout)
+	startIndexingApi(opts)
 }
