@@ -83,15 +83,20 @@ func startIndexingApi(opts Options) {
 	}
 }
 
+// This function is declared as var so that we can stub it in test
+var executeCmd = func(ctx context.Context, name string, arg ...string) {
+	cmd := exec.CommandContext(ctx, name, arg...)
+	cmd.Stdin = &bytes.Buffer{}
+	loggedRun(cmd)
+}
+
 func indexRepository(opts Options, req indexRequest, ctx context.Context, w http.ResponseWriter) {
 	args := []string{}
 	args = append(args, "-dest", opts.repoDir)
 	args = append(args, "-name", strconv.FormatUint(uint64(req.RepoID), 10))
 	args = append(args, "-repoid", strconv.FormatUint(uint64(req.RepoID), 10))
 	args = append(args, req.CloneURL)
-	cmd := exec.CommandContext(ctx, "zoekt-git-clone", args...)
-	cmd.Stdin = &bytes.Buffer{}
-	loggedRun(cmd)
+	executeCmd(ctx, "zoekt-git-clone", args...)
 
 	gitRepoPath, err := filepath.Abs(filepath.Join(opts.repoDir, fmt.Sprintf("%d.git", req.RepoID)))
 	if err != nil {
@@ -102,16 +107,11 @@ func indexRepository(opts Options, req indexRequest, ctx context.Context, w http
 
 	args = []string{}
 	args = append(args, "-C", gitRepoPath, "fetch")
-	cmd = exec.CommandContext(ctx, "git", args...)
-	cmd.Stdin = &bytes.Buffer{}
-	loggedRun(cmd)
+	executeCmd(ctx, "git", args...)
 
 	args = []string{}
 	args = append(args, gitRepoPath)
-	cmd = exec.CommandContext(ctx, "zoekt-git-index", args...)
-	cmd.Dir = opts.indexDir
-	cmd.Stdin = &bytes.Buffer{}
-	loggedRun(cmd)
+	executeCmd(ctx, "zoekt-git-index", args...)
 }
 
 func serveIndex(opts Options) func(w http.ResponseWriter, req *http.Request) {

@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -58,5 +60,39 @@ func TestLoggedRunFailure(t *testing.T) {
 
 	if !strings.Contains(stdout, "failed") {
 		t.Errorf("loggedRun output is incorrect: %v", stdout)
+	}
+}
+
+func TestIndexRepository(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), CmdTimeout)
+	defer cancel()
+
+	var cmdHistory [][]string
+
+	executeCmd = func(ctx context.Context, name string, arg ...string) {
+		currentCmd := append([]string{name}, arg...)
+		cmdHistory = append(cmdHistory, currentCmd)
+	}
+
+	opts := Options{
+		indexTimeout: CmdTimeout,
+		repoDir:      "/repo_dir",
+	}
+
+	req := indexRequest{
+		CloneURL: "https://example.com/repository.git",
+		RepoID:   100,
+	}
+
+	var w http.ResponseWriter
+	indexRepository(opts, req, ctx, w)
+
+	expectedHistory := make([][]string, 3)
+	expectedHistory[0] = []string{"zoekt-git-clone", "-dest", "/repo_dir", "-name", "100", "-repoid", "100", "https://example.com/repository.git"}
+	expectedHistory[1] = []string{"git", "-C", "/repo_dir/100.git", "fetch"}
+	expectedHistory[2] = []string{"zoekt-git-index", "/repo_dir/100.git"}
+
+	if !reflect.DeepEqual(cmdHistory, expectedHistory) {
+		t.Errorf("cmdHistory output is incorrect: %v, expected output: %v", cmdHistory, expectedHistory)
 	}
 }
