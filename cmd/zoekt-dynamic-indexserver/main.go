@@ -24,7 +24,6 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -160,7 +159,7 @@ func serveTruncate(opts Options) func(w http.ResponseWriter, req *http.Request) 
 }
 
 func emptyDirectory(dir string) error {
-	files, err := ioutil.ReadDir(dir)
+	files, err := os.ReadDir(dir)
 
 	if err != nil {
 		return err
