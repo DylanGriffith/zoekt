@@ -90,7 +90,10 @@ var executeCmd = func(ctx context.Context, name string, arg ...string) {
 	loggedRun(cmd)
 }
 
-func indexRepository(opts Options, req indexRequest, ctx context.Context, w http.ResponseWriter) {
+func indexRepository(opts Options, req indexRequest, w http.ResponseWriter) {
+	ctx, cancel := context.WithTimeout(context.Background(), opts.indexTimeout)
+	defer cancel()
+
 	args := []string{}
 	args = append(args, "-dest", opts.repoDir)
 	args = append(args, "-name", strconv.FormatUint(uint64(req.RepoID), 10))
@@ -132,10 +135,7 @@ func serveIndex(opts Options) func(w http.ResponseWriter, req *http.Request) {
 			return
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), opts.indexTimeout)
-		defer cancel()
-
-		indexRepository(opts, req, ctx, w)
+		indexRepository(opts, req, w)
 	}
 }
 

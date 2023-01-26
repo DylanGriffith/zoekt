@@ -64,9 +64,6 @@ func TestLoggedRunFailure(t *testing.T) {
 }
 
 func TestIndexRepository(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), CmdTimeout)
-	defer cancel()
-
 	var cmdHistory [][]string
 
 	executeCmd = func(ctx context.Context, name string, arg ...string) {
@@ -86,7 +83,7 @@ func TestIndexRepository(t *testing.T) {
 	}
 
 	var w http.ResponseWriter
-	indexRepository(opts, req, ctx, w)
+	indexRepository(opts, req, w)
 
 	expectedHistory := make([][]string, 3)
 	expectedHistory[0] = []string{"zoekt-git-clone", "-dest", "/repo_dir", "-name", "100", "-repoid", "100", "https://example.com/repository.git"}
