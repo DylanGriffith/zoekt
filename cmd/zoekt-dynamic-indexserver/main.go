@@ -105,8 +105,11 @@ func indexRepository(opts Options, req indexRequest, ctx context.Context, w http
 		return
 	}
 
-	args = []string{}
-	args = append(args, "-C", gitRepoPath, "fetch")
+	args = []string{
+		"-C",
+		gitRepoPath,
+		"fetch",
+	}
 	executeCmd(ctx, "git", args...)
 
 	args = []string{
