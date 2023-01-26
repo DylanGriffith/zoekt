@@ -77,6 +77,7 @@ func TestIndexRepository(t *testing.T) {
 	opts := Options{
 		indexTimeout: CmdTimeout,
 		repoDir:      "/repo_dir",
+		indexDir:     "/index_dir",
 	}
 
 	req := indexRequest{
@@ -90,7 +91,7 @@ func TestIndexRepository(t *testing.T) {
 	expectedHistory := make([][]string, 3)
 	expectedHistory[0] = []string{"zoekt-git-clone", "-dest", "/repo_dir", "-name", "100", "-repoid", "100", "https://example.com/repository.git"}
 	expectedHistory[1] = []string{"git", "-C", "/repo_dir/100.git", "fetch"}
-	expectedHistory[2] = []string{"zoekt-git-index", "/repo_dir/100.git"}
+	expectedHistory[2] = []string{"zoekt-git-index", "-index", "/index_dir", "/repo_dir/100.git"}
 
 	if !reflect.DeepEqual(cmdHistory, expectedHistory) {
 		t.Errorf("cmdHistory output is incorrect: %v, expected output: %v", cmdHistory, expectedHistory)

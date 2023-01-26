@@ -178,7 +178,7 @@ func emptyDirectory(dir string) error {
 }
 
 func parseOptions() Options {
-	dataDir := flag.String("data_dir", filepath.Join(os.Getenv("HOME"), "zoekt-serving"), "directory holding all data.")
+	dataDir := flag.String("data_dir", "", "directory holding all data.")
 	indexDir := flag.String("index_dir", "", "directory holding index shards. Defaults to $data_dir/index/")
 	timeout := flag.Duration("index_timeout", time.Hour, "kill index job after this much time")
 	listen := flag.String("listen", ":6060", "listen on this address.")
