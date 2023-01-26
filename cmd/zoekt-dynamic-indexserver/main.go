@@ -59,26 +59,6 @@ func (o *Options) defineFlags() {
 	flag.DurationVar(&o.indexTimeout, "index_timeout", time.Hour, "kill index job after this much time")
 }
 
-// fetchGitRepo runs git-fetch, and returns true if there was an
-// update.
-func fetchGitRepo(dir string) bool {
-	cmd := exec.Command("git", "--git-dir", dir, "fetch", "origin")
-	outBuf := &bytes.Buffer{}
-	errBuf := &bytes.Buffer{}
-
-	// Prevent prompting
-	cmd.Stdin = &bytes.Buffer{}
-	cmd.Stderr = errBuf
-	cmd.Stdout = outBuf
-	if err := cmd.Run(); err != nil {
-		log.Printf("command %s failed: %v\nOUT: %s\nERR: %s",
-			cmd.Args, err, outBuf.String(), errBuf.String())
-	} else {
-		return len(outBuf.Bytes()) != 0
-	}
-	return false
-}
-
 type indexRequest struct {
 	CloneURL string // TODO: Decide if tokens can be in the URL or if we should pass separately
 	RepoID   uint32
