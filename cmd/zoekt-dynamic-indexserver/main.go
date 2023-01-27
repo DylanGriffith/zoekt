@@ -202,13 +202,6 @@ func parseOptions() Options {
 
 func main() {
 	opts := parseOptions()
-
-	// Automatically prepend our own path at the front, to minimize
-	// required configuration.
-	if l, err := os.Readlink("/proc/self/exe"); err == nil {
-		os.Setenv("PATH", filepath.Dir(l)+":"+os.Getenv("PATH"))
-	}
-
 	opts.createMissingDirectories()
 
 	server := indexServer{

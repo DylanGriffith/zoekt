@@ -52,13 +52,13 @@ func TestLoggedRunFailure(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), CmdTimeout)
 	defer cancel()
 
-	cmd := exec.CommandContext(ctx, "foo")
+	cmd := exec.CommandContext(ctx, "false")
 
 	stdout := captureOutput(func() {
 		loggedRun(cmd)
 	})
 
-	if !strings.Contains(stdout, "failed") {
+	if !strings.Contains(stdout, "failed: exit status 1") {
 		t.Errorf("loggedRun output is incorrect: %v", stdout)
 	}
 }
