@@ -73,15 +73,6 @@ type indexRequest struct {
 	RepoID   uint32
 }
 
-func startIndexingApi(opts Options) {
-	http.HandleFunc("/index", serveIndex(opts))
-	http.HandleFunc("/truncate", serveTruncate(opts))
-
-	if err := http.ListenAndServe(opts.listen, nil); err != nil {
-		log.Fatal(err)
-	}
-}
-
 // This function is declared as var so that we can stub it in test
 var executeCmd = func(ctx context.Context, name string, arg ...string) {
 	cmd := exec.CommandContext(ctx, name, arg...)
@@ -121,40 +112,49 @@ func indexRepository(opts Options, req indexRequest, w http.ResponseWriter) {
 	executeCmd(ctx, "zoekt-git-index", args...)
 }
 
-func serveIndex(opts Options) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, r *http.Request) {
-		dec := json.NewDecoder(r.Body)
-		dec.DisallowUnknownFields()
-		var req indexRequest
-		err := dec.Decode(&req)
+type indexServer struct {
+	opts Options
+}
 
-		if err != nil {
-			log.Printf("Error decoding index request: %v", err)
-			http.Error(w, "JSON parser error", http.StatusBadRequest)
-			return
-		}
+func (s *indexServer) serveIndex(w http.ResponseWriter, r *http.Request) {
+	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
+	var req indexRequest
+	err := dec.Decode(&req)
 
-		indexRepository(opts, req, w)
+	if err != nil {
+		log.Printf("Error decoding index request: %v", err)
+		http.Error(w, "JSON parser error", http.StatusBadRequest)
+		return
+	}
+
+	indexRepository(s.opts, req, w)
+}
+
+func (s *indexServer) serveTruncate(w http.ResponseWriter, r *http.Request) {
+	err := emptyDirectory(s.opts.repoDir)
+
+	if err != nil {
+		log.Printf("Failed to empty repoDir repoDir: %v with error: %v", s.opts.repoDir, err)
+		http.Error(w, "Failed to delete repoDir", http.StatusInternalServerError)
+		return
+	}
+
+	err = emptyDirectory(s.opts.indexDir)
+
+	if err != nil {
+		log.Printf("Failed to empty repoDir indexDir: %v with error: %v", s.opts.repoDir, err)
+		http.Error(w, "Failed to delete indexDir", http.StatusInternalServerError)
+		return
 	}
 }
 
-func serveTruncate(opts Options) func(w http.ResponseWriter, req *http.Request) {
-	return func(w http.ResponseWriter, req *http.Request) {
-		err := emptyDirectory(opts.repoDir)
+func (s *indexServer) startIndexingApi() {
+	http.HandleFunc("/index", s.serveIndex)
+	http.HandleFunc("/truncate", s.serveTruncate)
 
-		if err != nil {
-			log.Printf("Failed to empty repoDir repoDir: %v with error: %v", opts.repoDir, err)
-			http.Error(w, "Failed to delete repoDir", http.StatusInternalServerError)
-			return
-		}
-
-		err = emptyDirectory(opts.indexDir)
-
-		if err != nil {
-			log.Printf("Failed to empty repoDir indexDir: %v with error: %v", opts.repoDir, err)
-			http.Error(w, "Failed to delete indexDir", http.StatusInternalServerError)
-			return
-		}
+	if err := http.ListenAndServe(s.opts.listen, nil); err != nil {
+		log.Fatal(err)
 	}
 }
 
@@ -211,5 +211,9 @@ func main() {
 
 	opts.createMissingDirectories()
 
-	startIndexingApi(opts)
+	server := indexServer{
+		opts: opts,
+	}
+
+	server.startIndexingApi()
 }
