@@ -20,10 +20,12 @@ package main
 import (
 	"context"
 	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"flag"
 	"fmt"
 	"html/template"
+	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -135,6 +137,7 @@ func main() {
 	enablePprof := flag.Bool("pprof", false, "set to enable remote profiling.")
 	sslCert := flag.String("ssl_cert", "", "set path to SSL .pem holding certificate.")
 	sslKey := flag.String("ssl_key", "", "set path to SSL .pem holding key.")
+	sslCaCert := flag.String("ssl_ca_cert", "", "set path to SSL .pem holding CA certificate. This is used for verifying client certificates and will enforce all clients have valid certificates.")
 	hostCustomization := flag.String(
 		"host_customization", "",
 		"specify host customization, as HOST1=QUERY,HOST2=QUERY")
@@ -280,6 +283,22 @@ func main() {
 	srv := &http.Server{
 		Addr:    *listen,
 		Handler: handler,
+	}
+	if *sslCaCert != "" {
+		caCert, err := ioutil.ReadFile(*sslCaCert)
+		if err != nil {
+			log.Fatal(err)
+		}
+		caCertPool := x509.NewCertPool()
+		caCertPool.AppendCertsFromPEM(caCert)
+
+		tlsConfig := &tls.Config{
+			ClientCAs:  caCertPool,
+			ClientAuth: tls.RequireAndVerifyClientCert,
+		}
+		tlsConfig.BuildNameToCertificate()
+
+		srv.TLSConfig = tlsConfig
 	}
 
 	go func() {
